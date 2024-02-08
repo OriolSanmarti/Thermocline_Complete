@@ -17,11 +17,13 @@ g 9.8
 errorGS 1e-7
 L 11.5
 voidf 0.22
-voidfPCM 0.9999
+voidfPCM 0.47
+voidfPCMin 0.2
 dpi 0.015
 dpenc 0.0337
+PCMthickness 0.002
 LPCMbot 0.0
-LPCMtop 0.0
+LPCMtop 1.5
 Text 25.0
 Thot 385
 Tcold 290
