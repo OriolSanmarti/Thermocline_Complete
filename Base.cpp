@@ -116,6 +116,7 @@ public:
 	double incz; // m
 	double voidf; //0.22;  // Vf/Vs
 	double voidfPCM;
+	double voidfPCMin;
 	double Vi;
 	double Vbi;
 	double VbiPCM;
@@ -130,6 +131,7 @@ public:
 	double NodesPCMbot;
 	double LPCMtop;
 	double NodesPCMtop;	
+	double PCMthickness;
 	double Text; // ºC
 	double htop;
 	double hbottom;
@@ -184,7 +186,7 @@ class PCM
 {
 public:
 	PCM(){}
-	PCM(int N, int M, double Tinicial) : Tsolid(N, vector<double> (M,Tinicial)), Tantsolid(N, vector<double> (M,Tinicial)), h(N, vector<double> (M,0)), hant(N, vector<double> (M,0)), mass(N, vector<double> (M,0)), massant(N, vector<double> (M,0)), h1D(N, 0), h1Dant(N, 0), Mass1D(N, 0),  Mass1Dant(N, 0)
+	PCM(int N, int M, double Tinicial) : Tsolid(N, vector<double> (M,Tinicial)), Tantsolid(N, vector<double> (M,Tinicial)), h(N, vector<double> (M,0)), hant(N, vector<double> (M,0)), mass(N, vector<double> (M,0)), massant(N, vector<double> (M,0)), rpcm(N, vector<double> (M,0)), epsilonPCMvec(N, vector<double> (M,0)), h1D(N, 0), h1Dant(N, 0), Mass1D(N, 0),  Mass1Dant(N, 0)
 	{
 		
 	}
@@ -195,6 +197,8 @@ public:
     std::vector<std::vector<double>> hant;
     std::vector<std::vector<double>> mass;
     std::vector<std::vector<double>> massant;
+    std::vector<std::vector<double>> rpcm;
+    std::vector<std::vector<double>> epsilonPCMvec;
 	vector<double> h1D;
 	vector<double> h1Dant;
 	vector<double> Mass1D;
@@ -203,11 +207,11 @@ public:
 	double cpsentalpia = 1340; // 1340;  // 1223; // J/kgK
 	double rhosentalpia = 2040; // 2040; // 2250; // kg/m3
 	double cplentalpia = 1340; // 1340;  // 1665; // J/kgK
-	double rholentalpia = 2040; // 2040; // 1900; // kg/m3
+	double rholentalpia = 2040*1.5; // 2040; // 1900; // kg/m3
 	//double masstotalpcm = VbiPCM * rhosentalpia; // kg
 	double Lentalpia = 1.34E5; // 1.34E5;  // 1.75E5; // J/kg
 	double lambdaPCM = 0.5; // W/mK
-	double Tsl = 300; // 306; // ºC
+	double Tsl = 380; // 306; // ºC
 	double Tfusio = Tsl-0.1; // ºC
 	double Tl = Tsl + 1.0;   // ºC
 	double Tref = 25;        // ºC
@@ -309,6 +313,7 @@ void setupPhysical(simulation &sim, std::unordered_map<std::string, double> atri
 	sim.phy.D = atributos["D"];
 	sim.phy.voidf = atributos["voidf"];
 	sim.phy.voidfPCM = atributos["voidfPCM"];
+	sim.phy.voidfPCMin = atributos["voidfPCMin"];
 	sim.phy.dpi = atributos["dpi"]; 
 	sim.phy.dpenc = atributos["dpenc"]; 
 	sim.phy.LPCMbot = atributos["LPCMbot"];
@@ -322,6 +327,7 @@ void setupPhysical(simulation &sim, std::unordered_map<std::string, double> atri
 	sim.phy.mfc = atributos["mfc"];
 	sim.phy.mfd = atributos["mfd"];
 	sim.phy.mf = atributos["mf"];
+	sim.phy.PCMthickness = atributos["PCMthickness"];
 	
 	double L = sim.phy.L;
 	double D = sim.phy.D;
@@ -487,8 +493,8 @@ double calcEnergyEntalpia(int x, simulation &sim)
 {
 	double rhosentalpia = sim.PCM.rhosentalpia;
 	double masstotalpcm = sim.phy.VbiPCM * rhosentalpia;
-	double dpi = sim.phy.dpi;
-	double dpenc = sim.phy.dpenc;
+	double dpi = sim.phy.dpi - sim.phy.PCMthickness;
+	double dpenc = sim.phy.dpenc - sim.phy.PCMthickness;
 	double Ltube = sim.phy.Ltube;
 	double VbiPCM = sim.phy.VbiPCM;
 	int M = sim.num.M;
@@ -632,6 +638,27 @@ void calcAlphaPCM(double i, simulation &sim)
 		return;
 	}
 }
+
+double calcepsilonfusio(simulation sim, int x)
+{
+	double rhosentalpia = sim.PCM.rhosentalpia; // 2040; // 2250; // kg/m3
+	double rholentalpia = sim.PCM.rholentalpia; // 2040; // 1900; // kg/m3
+	int M = sim.num.M;
+	double Vptotal = 0.0;
+	double epsiloni = 0.0;
+	for(int i = 0; i<M; i++)
+	{
+		double epsilonPCM = sim.PCM.epsilonPCMvec[x][i];
+		double Vp = sim.PCM.mass[x][i] / (((1.0 - epsilonPCM)*rhosentalpia) + (epsilonPCM*rholentalpia));
+		epsiloni += sim.PCM.epsilonPCMvec[x][i] * Vp;
+		Vptotal += Vp;
+		//cout << " i: " << i << " mass: " << sim.PCM.mass[x][i] << endl;
+	}
+	epsiloni = epsiloni / Vptotal;
+	//cout << "x: " << x << " epsiloni: " << epsiloni << endl;
+	return epsiloni;
+}
+
 // PostProcess variables for heat (Q) accumulated
 double Qacc_f = 0.0;
 double Qacc_s = 0.0;
@@ -665,7 +692,7 @@ double Qloss_t = 0.0;
 double Eloss_t = 0.0;
 // PostProcess variables for Temperature among height
 bool printedAll = false; 
-double tempsCiclePrint = 50.0;  // The minimum elapsed hours to start printing the fluid temperature
+double tempsCiclePrint = 0.0;  // The minimum elapsed hours to start printing the fluid temperature
 double factmwh = 2.777777777E-7; // to convert from [kJ] to [MWh]
 int contCicless = 0; // Cycle counter
 double tant = 0; // [s] Elapsed time on the previous cycle
@@ -831,6 +858,8 @@ void PostProcess(simulation &sim)
     if (printedAll){ // If the flag is true, we print the temperature of the cycle
         int everyIte = 100; // If we print every iteration it will make the code really slow and generate so much unnecessary information
         if(ite%everyIte == 0){ // We check that we are on the correct iteration to print
+        	// To check the state of the PCM
+	    	double epsilonfusio = 0.0;
             std::ofstream Archivo2;
             char nombre[20000]; // This is a strategy to open a file with a generated number 
             int numero = ite/everyIte;
@@ -840,17 +869,19 @@ void PostProcess(simulation &sim)
             Archivo2 << "#Time: " << t/3600 << " hours" <<  " estatglobal: " << sim.estat << std::endl;
             Archivo2 << "#z[m] Tf[C] Ts[C]" << std::endl;
             for(int i = 0; i<N; i++){
-                Archivo2 << incz*i << " " << sim.fluid.Tf[i] << " " << sim.solid.Ts[i] << std::endl; // Print the fluid and solid temperature 
+            	epsilonfusio = calcepsilonfusio(sim, i);
+                Archivo2 << incz*i << " " << sim.fluid.Tf[i] << " " << sim.solid.Ts[i] << " "<< epsilonfusio << std::endl; // Print the fluid and solid temperature 
             } 
             Archivo.close();
         }
         ofstream Archivo3;
         Archivo3.open("Tout.txt", ios::app);
         Archivo3 << t/3600.0 << " " << sim.fluid.Tf[N-1] << " " << sim.fluid.Tf[N/2] <<" " << sim.fluid.Tf[30] << " " << sim.fluid.Tf[0]<< std::endl;
-	    Archivo3.close();
+	    Archivo3.close();	
     }
 
     //-------------------------------------------------------------------------------------------------------------------------------------------------------//
+    
     
     
 
@@ -1035,11 +1066,106 @@ void initmass(simulation &sim)
 			sim.PCM.mass[j][i] = Vp * rhosentalpia;
 			sim.PCM.massant[j][i] = sim.PCM.mass[j][i];
 			masstotaltube += sim.PCM.mass[j][i];
+			sim.PCM.rpcm[j][i] = dest;
+			cout << "i: " << i << " r: " << dest << " Vp: " << Vp << endl;
 		}
 		sim.PCM.Mass1D[j] = rhosentalpia * VbiPCM;
 		sim.PCM.Mass1Dant[j] = sim.PCM.Mass1D[j];
 		//cout << "total volume tube: " << Vttube <<"mass total tube: " << masstotaltube << endl;
 	}
+}
+
+void initmass2(simulation &sim)
+{
+	double cpsentalpia = sim.PCM.cpsentalpia; // 1340;  // 1223; // J/kgK
+	double rhosentalpia = sim.PCM.rhosentalpia; // 2040; // 2250; // kg/m3
+	double cplentalpia = sim.PCM.cplentalpia; // 1340;  // 1665; // J/kgK
+	double rholentalpia = sim.PCM.rholentalpia; // 2040; // 1900; // kg/m3
+	//double masstotalpcm = VbiPCM * rhosentalpia; // kg
+	double Lentalpia = sim.PCM.Lentalpia; // 1.34E5;  // 1.75E5; // J/kg
+	double lambdaPCM = sim.PCM.lambdaPCM; // W/mK
+	double Tsl = sim.PCM.Tsl; // 306; // ºC
+	double Tfusio = sim.PCM.Tfusio; // ºC
+	double Tl = sim.PCM.Tl;   // ºC
+	double Tref = sim.PCM.Tref;        // ºC
+	double dpenc = sim.phy.dpenc - sim.phy.PCMthickness;
+	double dpi = sim.phy.dpi - sim.phy.PCMthickness;
+	double voidfPCMin = sim.phy.voidfPCMin;
+	double Ltube = sim.phy.Ltube;
+	double VbiPCM = sim.phy.VbiPCM;
+	int N = sim.num.N;
+	int M = sim.num.M;
+	
+	// Calculate incr'
+    double incr = 0.0;
+    double Vpcm = 0.0;
+    if(sim.PCMtype == "PB") Vpcm = 4.0/24.0 * M_PI * (pow(dpi, 3.0));
+    if(sim.PCMtype == "tube") Vpcm = M_PI * (pow(dpenc, 2.0)) * Ltube / 4.0;
+    Vpcm = Vpcm * (1-voidfPCMin);
+    double dppcm = 0.0;
+    if(sim.PCMtype == "PB") dppcm = pow((6.0*Vpcm*M_PI) , (1.0/3.0));
+    if(sim.PCMtype == "tube") dppcm = pow((4.0*Vpcm/(M_PI*Ltube)) , (1.0/2.0));
+    
+    if(sim.PCMtype == "PB") incr = (dppcm/(M-1)) / 2.0;
+    if(sim.PCMtype == "tube") incr = (dppcm/(M-1)) / 2.0;
+    
+    //if(sim.PCMtype == "tube") incr = (dpenc/(M-1)) / 2.0;
+	//if(sim.PCMtype == "PB") incr = (dpi/(M-1)) / 2.0;
+
+	for(int j = 0; j<N; j++)
+	{
+		double masstotaltube = 0.0;
+		double Vttube = 0.0;
+		for(int i = 0; i<M-1; i++)
+		{
+			// Valors fisics
+			double dest = i * incr + incr;
+			double dwest = i * incr;
+            double Vp = 0;
+            if(sim.PCMtype == "PB") Vp = 4.0/3.0 * M_PI * (pow(dest, 3.0) - pow(dwest, 3.0));
+            if(sim.PCMtype == "tube") Vp = M_PI * (pow(dest, 2.0) - pow(dwest, 2.0)) * Ltube;
+            Vttube += Vp;
+            //cout <<"i: "<< i <<" Vp: " << Vp << " Vt: " << Vttube<< endl;
+			sim.PCM.mass[j][i] = Vp * rhosentalpia;
+			sim.PCM.massant[j][i] = sim.PCM.mass[j][i];
+			masstotaltube += sim.PCM.mass[j][i];
+			sim.PCM.rpcm[j][i] = dest;
+			cout << "i: " << i << " r: " << dest << " Vp: " << Vp << endl;
+			cout << "dpenc: " << dpenc << " th: " << sim.phy.PCMthickness << endl;
+		}
+		sim.PCM.Mass1D[j] = rhosentalpia * VbiPCM;
+		sim.PCM.Mass1Dant[j] = sim.PCM.Mass1D[j];
+		//cout << "total volume tube: " << Vttube <<"mass total tube: " << masstotaltube << endl;
+	}
+}
+
+void actualizePCMradi(simulation &sim, int x)
+{
+	double rhosentalpia = sim.PCM.rhosentalpia; // 2040; // 2250; // kg/m3
+	double rholentalpia = sim.PCM.rholentalpia; // 2040; // 1900; // kg/m3
+
+
+	double Ltube = sim.phy.Ltube;
+	int N = sim.num.N;
+	int M = sim.num.M;
+
+
+	for(int i = 0; i<M-1; i++)
+	{
+		// Calculate Vp actual
+		double epsilonPCM = sim.PCM.epsilonPCMvec[x][i];
+		double Vp = sim.PCM.mass[x][i] / (((1.0 - epsilonPCM)*rhosentalpia) + (epsilonPCM*rholentalpia));
+    
+    	// Actualize radii
+		double rPCMant = 0.0;
+		if(i != 0) rPCMant = sim.PCM.rpcm[x][i-1];
+        double rPCMact = 0.0;
+        if(sim.PCMtype == "PB") rPCMact = pow((pow(rPCMant, 3.0) + 3*Vp/(4.0*M_PI)), (1.0/3.0));
+        if(sim.PCMtype == "tube") rPCMact = pow((pow(rPCMant, 2.0) + (Vp/(M_PI*Ltube))), (1.0/2.0));
+		 
+		sim.PCM.rpcm[x][i] = rPCMact;
+		//cout << "i: " << i << " r: " << rPCMact <<" rant: " << rPCMant <<" Vp: " << Vp <<" epsilonPCM: " << epsilonPCM << endl;
+	}	
 }
 
 double calcentalpia(double h, simulation &sim)
@@ -1089,8 +1215,10 @@ double calcentalpia(double h, simulation &sim)
     
     return Tp;
 }
-void ChargeSolidEntalpiaCopia(int x, simulation &sim)
+
+double calcepsilonPCMvec(double h, simulation &sim)
 {
+	double epsilonPCM = 0.0;
 	double cpsentalpia = sim.PCM.cpsentalpia; // 1340;  // 1223; // J/kgK
 	double rhosentalpia = sim.PCM.rhosentalpia; // 2040; // 2250; // kg/m3
 	double cplentalpia = sim.PCM.cplentalpia; // 1340;  // 1665; // J/kgK
@@ -1103,102 +1231,45 @@ void ChargeSolidEntalpiaCopia(int x, simulation &sim)
 	double Tl = sim.PCM.Tl;   // ºC
 	double Tref = sim.PCM.Tref;        // ºC
 	
-	double dpenc = sim.phy.dpenc;
-	double dpi = sim.phy.dpi;
-	double Ltube = sim.phy.Ltube;
-	double VbiPCM = sim.phy.VbiPCM;
-	double inct = sim.num.inct;
-	int N = sim.num.N;
-	int M = sim.num.M;
-	double errorGS = sim.num.errorGS;
-	
-    // Info entalpia
+	double Tp = 0;
     double fracliquid = 0;
-    double incr = 0.0;
-    if(sim.PCMtype == "tube") incr = (dpenc/(M-1)) / 2.0;
-    if(sim.PCMtype == "PB") incr = (dpi/(M-1)) / 2.0;
-	bool itefinGS = false;	
-	double beta = 0.5;
-    int contiteracions = 0;
-	while(!itefinGS){
-		itefinGS = true;
-        contiteracions += 1;
-	    //for(int i = 0; i<M; i++)
-	    for(int i = M-1; i>=0; i--)
-	    {
-	    	double Tsolidactual = sim.PCM.Tsolid[x][i];
-	        // Valors fisics
-	        double dpws = incr;
-	        double dpes = incr;
-	        double dest = i * incr + incr;
-	        double dwest = i * incr ;
-	        if(i == 0) dpes =  incr + incr/2.0;
-	        if(i == M-1) dpws = incr/2.0;
-	        if(i == M-1) dwest = i*incr - incr/2.0;
-	        double Sws = 0;
-	        double Ses = 0;
-	        double Vp = 0;
-	        double Aw = 0;
-	        if(sim.PCMtype == "PB")
-	        {
-		        Sws = pow(dwest, 2.0) * 4 * M_PI; 
-		        Ses = pow(dest, 2.0) * 4 * M_PI;
-				Vp = 4.0/3.0 * M_PI * (pow(dest, 3.0) - pow(dwest, 3.0));
-				Aw = 4.0/3.0 * M_PI * pow((dpi/2.0), 3);
-			}
-			else if(sim.PCMtype == "tube")
-			{
-				Sws = 2*dwest * M_PI * Ltube; // m2
-		        Ses = 2*dest * M_PI * Ltube; // m2
-				Vp = M_PI * (pow(dest, 2.0) - pow(dwest, 2.0)) / 1.0 * Ltube;
-				Aw = M_PI*dpenc * Ltube;
-				//cout << "i: " << i << " dpw: " << dpws << " dpes: " << dpes << " dest: " << dest << " dwest: " << dwest << " Sws: " << Sws << " Ses: " << Ses << endl;
-			}
-			else
-			{
-				cout << "INCORRECT PCM TYPE" << endl;
-				return;
-			}
+    double hmaxsolid = cpsentalpia*(Tfusio - Tref);
+    double hmaxsl = hmaxsolid + cpsentalpia*(Tsl - Tfusio) + ((Tsl-Tfusio) / (Tl-Tfusio))*Lentalpia;
+    double hminliquid = cpsentalpia*(Tsl-Tref) + cplentalpia*(Tl-Tsl) + Lentalpia;
+    //cout << "hmaxsolid:  " << hmaxsolid << " hmaxsl: " << hmaxsl << " hminliquid: " << hminliquid <<endl;
 
-	        if(i == (M-1))
-	        {
-	            double aws = lambdaPCM * Sws / (dpws);
-	            //double bps = alpha[x]*Aw;
-	            double bps = sim.fluid.alpha[x];
-	            //
-	            if(sim.PCMtype == "tube") {
-	            	bps = sim.fluid.alpha[x]/Aw;	
-	            	aws = lambdaPCM / (dpws);
-				}
-				//
-	            sim.PCM.Tsolid[x][i] = (beta * (aws*sim.PCM.Tsolid[x][i-1] + bps*sim.fluid.Tf[x]) + (1-beta)*(-aws*sim.PCM.Tantsolid[x][i] + aws*sim.PCM.Tantsolid[x][i-1] - bps*sim.PCM.Tantsolid[x][i] + bps*sim.fluid.Tantf[x])) / (beta*(aws + bps));
-	            //cout <<"x: " << x << " i: " << i << " T: " << Tsolid[x][i] << " Tant: " << Tantsolid[x][i] << endl;
-	        }
-	        else
-	        {
-	        	// t = n+1
-	        	double aws = 0;
-	        	if(i != 0) aws = lambdaPCM*Sws/dpws * (sim.PCM.Tsolid[x][i] - sim.PCM.Tsolid[x][i-1]);
-	        	double aes = lambdaPCM*Ses/dpes * (sim.PCM.Tsolid[x][i+1] - sim.PCM.Tsolid[x][i]);
-	        	// t = n
-	        	double awsant = 0;
-	        	if(i != 0) awsant = lambdaPCM*Sws/dpws * (sim.PCM.Tantsolid[x][i] - sim.PCM.Tantsolid[x][i-1]);
-	        	double aesant = lambdaPCM*Ses/dpes * (sim.PCM.Tantsolid[x][i+1] - sim.PCM.Tantsolid[x][i]);
-	        	
-				sim.PCM.h[x][i] = (sim.PCM.massant[x][i]*sim.PCM.hant[x][i] + inct * (beta*(-aws + aes) + (1-beta)*(-awsant + aesant))) / sim.PCM.mass[x][i];
-	            sim.PCM.Tsolid[x][i] = calcentalpia(sim.PCM.h[x][i], sim);
-	            //cout <<"x: " << x << " i: " << i << " h: " << h[x][i] << " T: " << Tsolid[x][i] << " hant: " << hant[x][i] << " aws: " << aws << " aes: " << aes << " t: " << t / 3600.0 << endl;
-	        }
-	        
-	        if(errorGS < fabs(sim.PCM.Tsolid[x][i]-Tsolidactual)) itefinGS = false;
-	    }
-        if(contiteracions > 10) itefinGS = true;
-    
-	}
-	sim.solid.Ts[x] = sim.PCM.Tsolid[x][M-1];
+    // Calculem on estem
+    if(h <= hmaxsolid)
+    {
+        Tp = Tref + h/cpsentalpia;
+        fracliquid = 0;
+        //cout << " Em sento solid a temperatura: " << Tp <<endl;
+    }
+    else if(h > hmaxsolid and h < hmaxsl)
+    {
+        Tp = (h + cpsentalpia*Tref + (Tfusio/(Tl-Tfusio))*Lentalpia) / (cpsentalpia + (1/(Tl-Tfusio))*Lentalpia);
+        fracliquid = (Tp-Tfusio) / (Tl-Tfusio);
+        //cout << " Em sento entre solid i sl a temperatura: " << Tp << " amb fracliquid: " << fracliquid << endl;
+    }
+    else if(h >= hmaxsl and h < hminliquid)
+    {
+        Tp = (h - cpsentalpia*(Tsl-Tref) + Tsl*cplentalpia + (Tfusio/(Tl-Tfusio))*Lentalpia) / (cplentalpia + (1/(Tl-Tfusio))*Lentalpia);
+        fracliquid = (Tp-Tfusio) / (Tl-Tfusio);
+        //cout << " Em sento entre sl i liquid a temperatura: " << Tp << " amb fracliquid: " << fracliquid << endl;
+    }
+    else
+    {
+        Tp = (h - Lentalpia + cplentalpia*Tsl - cpsentalpia*(Tsl-Tref)) / cplentalpia;
+        fracliquid = 1.0;
+        //cout << " Em sento liquid a temperatura: " << Tp << endl;
+    }
+    //if(fracliquid > 0)cout << "h: " << h << " frac: " << fracliquid << endl;
+	return fracliquid;
 }
+
 void ChargeSolidEntalpia(int x, simulation &sim)
 {
+	actualizePCMradi(sim, x);
 	double cpsentalpia = sim.PCM.cpsentalpia; // 1340;  // 1223; // J/kgK
 	double rhosentalpia = sim.PCM.rhosentalpia; // 2040; // 2250; // kg/m3
 	double cplentalpia = sim.PCM.cplentalpia; // 1340;  // 1665; // J/kgK
@@ -1222,9 +1293,6 @@ void ChargeSolidEntalpia(int x, simulation &sim)
 	
     // Info entalpia
     double fracliquid = 0;
-    double incr = 0.0;
-    if(sim.PCMtype == "tube") incr = (dpenc/(M-1)) / 2.0;
-    if(sim.PCMtype == "PB") incr = (dpi/(M-1)) / 2.0;
 	bool itefinGS = false;	
     int contiteracions = 0;
 	while(!itefinGS){
@@ -1236,14 +1304,51 @@ void ChargeSolidEntalpia(int x, simulation &sim)
 	    	double Tsolidactual = sim.PCM.Tsolid[x][i];
 	    	double hactual = sim.PCM.h[x][i];
 	        // Valors fisics
-	        double dpws = incr;
-	        double dpes = incr;
-	        double rest = i * incr + incr;
-	        double rwest = i * incr ;
-	        if(i == 0) dpes =  incr + incr/2.0;
-	        if(i == 1) dpws = incr + incr/2.0; //
-	        if(i == M-1) dpws = incr/2.0;
-	        if(i == M-2) dpes = incr/2.0; //
+			double dpws = 0.0;
+	        double dpes = 0.0;
+	        double rest = 0.0;
+	        double restest = 0.0;
+	        double rwestwest = 0.0;
+	        double rwest = 0;
+	        if(i > 1 and i < M-2)
+	        {
+	        	rest  = sim.PCM.rpcm[x][i];
+	        	restest  = sim.PCM.rpcm[x][i+1];
+	        	rwest = sim.PCM.rpcm[x][i-1];
+	        	rwestwest = sim.PCM.rpcm[x][i-2];
+	        	dpes = ((restest-rest)/2.0) + ((rest-rwest)/2.0);
+	        	dpws = ((rest-rwest)/2.0) + ((rwest-rwestwest)/2.0);
+			}
+			else if(i == 0)
+			{
+				rest  = sim.PCM.rpcm[x][i];
+	        	restest  = sim.PCM.rpcm[x][i+1]; 
+	        	dpes = ((restest-rest)/2.0) + rest;
+			}
+			else if(i == 1)
+			{
+				rest  = sim.PCM.rpcm[x][i];
+	        	restest  = sim.PCM.rpcm[x][i+1];
+	        	rwest = sim.PCM.rpcm[x][i-1];
+	        	dpes = ((restest-rest)/2.0) + ((rest-rwest)/2.0);
+	        	dpws = ((rest-rwest)/2.0) + rwest;
+			}
+			else if(i == M-2)
+			{
+				rest  = sim.PCM.rpcm[x][i];
+	        	rwest = sim.PCM.rpcm[x][i-1];
+	        	rwestwest = sim.PCM.rpcm[x][i-2];
+	        	dpes = ((rest-rwest)/2.0);
+	        	dpws = ((rest-rwest)/2.0) + ((rwest-rwestwest)/2.0);
+			}
+			else if(i == M-1)
+			{
+	        	rwest = sim.PCM.rpcm[x][i-1];
+	        	rwestwest = sim.PCM.rpcm[x][i-2];
+	        	dpws = ((rwest-rwestwest)/2.0);
+			}
+	        //cout << "i: " << i << " rest: " << rest << " restest: " << restest << " rwest: " << rwest << " rwestwest: " << rwestwest << endl;
+
 	        double Sws = 0;
 	        double Ses = 0;
 	        double Vp = 0;
@@ -1288,6 +1393,7 @@ void ChargeSolidEntalpia(int x, simulation &sim)
 	        	
 				sim.PCM.h[x][i] = (sim.PCM.massant[x][i]*sim.PCM.hant[x][i] + inct * (aes)) / sim.PCM.mass[x][i];
 	            sim.PCM.Tsolid[x][i] = calcentalpia(sim.PCM.h[x][i], sim);
+	            sim.PCM.epsilonPCMvec[x][i] = calcepsilonPCMvec(sim.PCM.h[x][i], sim);
 	            
 	            //cout <<"x: " << x << " i: " << i << " h: " << h[x][i] << " T: " << Tsolid[x][i] << " hant: " << hant[x][i] << " Massant: " << massant[x][i]<<" aes: " << aes << " t: " << t / 3600.0 << endl;
 			}
@@ -1298,6 +1404,7 @@ void ChargeSolidEntalpia(int x, simulation &sim)
 	        	
 				sim.PCM.h[x][i] = (sim.PCM.massant[x][i]*sim.PCM.hant[x][i] + inct * (-aws + aes)) / sim.PCM.mass[x][i];
 	            sim.PCM.Tsolid[x][i] = calcentalpia(sim.PCM.h[x][i], sim);
+	            sim.PCM.epsilonPCMvec[x][i] = calcepsilonPCMvec(sim.PCM.h[x][i], sim);
 	            //cout <<"x: " << x << " i: " << i << " h: " << h[x][i] << " T: " << Tsolid[x][i] << " Tsolide: " << Tsolid[x][i+1]<< " Tsolidw: " << Tsolid[x][i-1] << " hant: " << hant[x][i] << " Massant: " << massant[x][i]<< " aws: " << aws << " aes: " << aes << " t: " << t / 3600.0 << endl;
 	            //cout << "Sws: " << Sws << " dpws: " << dpws << " Ses: " << Ses << " dpes: " << dpes << endl;
 	        }
@@ -1795,7 +1902,7 @@ int main(){
     actualizeProperties(sim);
     
 	initentalpia(sim);
-	initmass(sim);
+	initmass2(sim);
 	//Borrar
 	/*
 	for(int i = 0; i<N; i++)
